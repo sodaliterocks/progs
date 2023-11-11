@@ -18,8 +18,6 @@ function open_link() {
         xdg-open "$url" &>/dev/null
         [[ $? != 0 ]] && xdg-open "$url_fallback"
         exit 0
-    else
-        die "No link for '$1'"
     fi
 }
 
