@@ -1,0 +1,3 @@
+[submodule "lib/sodaliterocks.invoker"]
+	path = lib/sodaliterocks.invoker
+	url = https://github.com/sodaliterocks/invoker
