@@ -33,7 +33,7 @@ function main() {
 
 if [[ $_PLUG_INVOKED != "true" ]]; then
     base_dir="$(dirname "$(realpath -s "$0")")"
-    git_dir="$base_dir/../../../../.."
+    git_dir="$base_dir/.."
 
     if [[ -d "$git_dir/.git" ]]; then
         "$git_dir/lib/sodaliterocks.invoker/src/invoke.sh" "$0" $@
