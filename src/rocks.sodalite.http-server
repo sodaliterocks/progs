@@ -3,8 +3,8 @@
 _PLUG_TITLE="HTTP Server"
 _PLUG_DESCRIPTION="Serve static files over HTTP"
 _PLUG_ARGS=(
-    "directory;d;Directory to serve (default: .);path"
-    "port;p;Port to listen on (default: 8080);number"
+    "directory;d;Directory to serve;path;."
+    "port;p;Port to listen on;number;8080"
 )
 
 function main() {
@@ -18,9 +18,6 @@ function main() {
             die "Invalid positional arguments"
         fi
     fi
-
-    [[ $_directory == "" ]] || [[ $_directory == "true" ]] && _directory="."
-    [[ $_port == "" ]] || [[ $_port == "true" ]] && _port="8080"
 
     ! [[ -d $_directory ]] && die "Directory '$_directory' does not exist"
 
