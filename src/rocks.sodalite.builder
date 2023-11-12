@@ -11,7 +11,7 @@ _PLUG_ARGS=(
     "container;c;Build tree inside Podman container"
     "vendor;;Vendor to use in CPE;string;$USER"
     "working-dir;w;Directory to output build artifacts to;string;$default_working_dir"
-    "git-version;g;Execute latest version of $_PLUG_TITLE from GitHub"
+    "git-version;g;Execute latest version of $_PLUG_TITLE from GitHub (https://github.com/sodaliterocks/progs)"
     "serve;;Serve repository after successful build"
     "serve-port;;Port to serve on when using --serve;int;8080"
     "buildinfo-anon;;Do not print sensitive information into buildinfo file"
@@ -20,13 +20,15 @@ _PLUG_ARGS=(
     "ex-container-args;;Extra arguments for Podman when using --container/-c"
     "ex-container-hostname;;Hostname for Podman container when using --container/-c;string;sodalite-build--$id"
     "ex-container-image;;Image for Podman when using --container/-c;string;fedora:39"
+    "ex-container-image-allow-non-fedora;;Allow images other than Fedora to be used when using --container/-c"
     "ex-container-name;;Name for Podman container when using --container/-c;string;sodalite-build_$id"
     "ex-git-version-branch;;Branch to use when using --git-version/-g;string;main"
     "ex-no-unified-core;;Do not use --unified-core option with rpm-ostree"
     "ex-override-starttime;;;int"
     "ex-print-github-release-table-row;;"
+    "ex-use-docker;;Use Docker instead of Podman when using --container/-c (experimental!)"
 )
-_PLUG_ROOT="false"
+_PLUG_ROOT="true"
 
 function build_die() {
     exit_code=255
@@ -72,18 +74,98 @@ function get_user() {
 }
 
 function main() {
+    me_filename="$SODALITE_BUILD_FILENAME"
+
     if [[ "$(id -u)" == "0" ]]; then
         _vendor="$(get_user)"
-    else
-        if [[ $_container != "true" ]]; then
-            die "Only --container supports building with root\n       Either use --container or run command with 'sudo'"
-        fi
     fi
 
     [[ "$_working_dir" == "$default_working_dir" ]] && _working_dir="$_path/build"
 
-    #if [[ $_git_version != "" ]]; then
-    #    online_file_branch="$(echo $_ex_git_version_branch | sed "s|/|__|g")"
-    #    online_file="https://raw.githubusercontent.com/sodaliterocks/progs/src/$ex_git_version_branch/build.sh"
-    #fi
+    if [[ $_git_version != "" ]]; then
+        online_file_branch="$(echo $_ex_git_version_branch | sed "s|/|__|g")"
+        online_file="https://raw.githubusercontent.com/sodaliterocks/progs/$_ex_git_version_branch/src/rocks.sodalite.builder"
+        downloaded_file="$_PLUG_PATH+$online_file_branch"
+
+        local_md5sum="$(cat "$_PLUG_PATH" | md5sum | cut -d ' ' -f1)"
+        online_md5sum="$(curl -sL $online_file | md5sum | cut -d ' ' -f1)"
+
+        if [[ $? == 0 ]]; then
+            if [[ $local_md5sum != $online_md5sum ]]; then
+                curl -sL $online_file > "$downloaded_file"
+                chmod +x "$downloaded_file"
+
+                say primary "$(emj "🌐")Executing Git version ($online_file_branch)..."
+
+                bash -c "$downloaded_file $(echo $_PLUG_PASSED_ARGS | sed "s|--git-version||")"
+                downloaded_file_result="$?"
+
+                rm -f "$downloaded_file"
+                exit $downloaded_file_result
+            fi
+        else
+            build_die "Unable to check latest remote version of $(basename $_PLUG_PATH)"
+        fi
+    fi
+
+    if [[ $_container == "true" ]]; then
+        container_prog=""
+        container_start_time=$(date +%s)
+
+        podman_installed=false
+        docker_installed=false
+
+        [[ $(command -v "podman") ]] && podman_installed=true
+        [[ $(command -v "docker") ]] && docker_installed=true
+
+        if [[ $_ex_use_docker == "true" ]]; then
+            if [[ $docker_installed == false ]]; then
+                die_message="Docker not installed (using --ex-use-docker). Cannot build with --container/-c."
+                [[ $podman_installed == true ]] && die_message+="\n       However, Podman was detected; try dropping --ex-use-docker to use Podman instead"
+
+                build_die "$die_message"
+            else
+                container_prog="docker"
+            fi
+        else
+            if [[ $podman_installed == false ]]; then
+                die_message="Podman not installed. Cannot build with --container/-c."
+                [[ $podman_installed == true ]] && die_message+="\n       However, Docker was detected; try adding --ex-use-docker to use Docker instead (warning: experimental!)"
+
+                build_die "$die_message"
+            else
+                container_prog="podman"
+            fi
+        fi
+
+        container_build_args+="--path /wd/src/"
+        container_build_args+=" --working-dir /wd/out"
+        [[ $_buildinfo_anon != "" ]] && container_build_args+=" --buildinfo-anon $_buildinfo_anon"
+        [[ $_ex_no_unified_core != "" ]] && container_build_args+=" --ex-log $ex_log"
+        [[ $_ex_print_github_release_table_row != "" ]] && container_build_args+=" --ex-print-github-release-table-row $_ex_print_github_release_table_row"
+        [[ $_serve != "" ]] && container_build_args+=" --serve $_serve"
+        [[ $_serve_port != "" ]] && container_build_args+=" --serve-port $_serve_port"
+        [[ $_skip_cleanup != "" ]] && container_build_args+=" --skip-cleanup $_skip_cleanup"
+        [[ $_skip_tests != "" ]] && container_build_args+=" --skip-tests $_skip_tests"
+        [[ $_tree != "" ]] && container_build_args+=" --tree $_tree"
+        [[ $_vendor != "" ]] && container_build_args+=" --vendor $_vendor"
+
+        if [[ $_ex_override_starttime != "" ]]; then
+            container_build_args+=" --ex-override-starttime $_ex_override_starttime"
+        else
+            container_build_args+=" --ex-override-starttime $container_start_time"
+        fi
+
+        container_args="run --rm --privilged \
+            --hostname \"$_ex_container_hostname\" \
+            --name \"$_ex_container_name\" \
+            --volume \"$working_dir:/wd/out/\" \
+            --volume \"$src_dir:/wd/src\" "
+        [[ ! -z $_ex_conatiner_args ]] && container_args+="$_ex_container_args "
+
+        container_command="touch /.sodalite-containerenv;"
+        container_command+="dnf install -y curl git-core git-lfs hostname policycoreutils rpm-ostree selinux-policy selinux-policy-targeted;"
+        container_command+="cd /wd/src; /wd/src/$me_filename $container_build_args;"
+        container_args+="$container_image /bin/bash -c \"$container_command\""
+    fi
 }
