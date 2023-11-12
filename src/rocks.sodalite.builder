@@ -82,32 +82,6 @@ function main() {
 
     [[ "$_working_dir" == "$default_working_dir" ]] && _working_dir="$_path/build"
 
-    if [[ $_git_version != "" ]]; then
-        online_file_branch="$(echo $_ex_git_version_branch | sed "s|/|__|g")"
-        online_file="https://raw.githubusercontent.com/sodaliterocks/progs/$_ex_git_version_branch/src/rocks.sodalite.builder"
-        downloaded_file="$_PLUG_PATH+$online_file_branch"
-
-        local_md5sum="$(cat "$_PLUG_PATH" | md5sum | cut -d ' ' -f1)"
-        online_md5sum="$(curl -sL $online_file | md5sum | cut -d ' ' -f1)"
-
-        if [[ $? == 0 ]]; then
-            if [[ $local_md5sum != $online_md5sum ]]; then
-                curl -sL $online_file > "$downloaded_file"
-                chmod +x "$downloaded_file"
-
-                say primary "$(emj "🌐")Executing Git version ($online_file_branch)..."
-
-                bash -c "$downloaded_file $(echo $_PLUG_PASSED_ARGS | sed "s|--git-version||")"
-                downloaded_file_result="$?"
-
-                rm -f "$downloaded_file"
-                exit $downloaded_file_result
-            fi
-        else
-            build_die "Unable to check latest remote version of $(basename $_PLUG_PATH)"
-        fi
-    fi
-
     if [[ $_container == "true" ]]; then
         container_prog=""
         container_start_time=$(date +%s)
@@ -156,7 +130,7 @@ function main() {
             container_build_args+=" --ex-override-starttime $container_start_time"
         fi
 
-        container_args="run --rm --privilged \
+        container_args="run --rm --privileged \
             --hostname \"$_ex_container_hostname\" \
             --name \"$_ex_container_name\" \
             --volume \"$working_dir:/wd/out/\" \
