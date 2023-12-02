@@ -119,6 +119,28 @@ function get_user() {
     fi
 }
 
+function print_time() {
+    ((h=${1}/3600))
+    ((m=(${1}%3600)/60))
+    ((s=${1}%60))
+
+    h_string="hours"
+    m_string="minutes"
+    s_string="seconds"
+
+    [[ $h == 1 ]] && h_string="hour"
+    [[ $m == 1 ]] && m_string="minute"
+    [[ $s == 1 ]] && s_string="second"
+
+    output=""
+
+    [[ $h != "0" ]] && output+="$h $h_string"
+    [[ $m != "0" ]] && output+=" $m $m_string"
+    [[ $s != "0" ]] && output+=" $s $s_string"
+
+    echo $output
+}
+
 ###
 
 function build_sodalite() {
