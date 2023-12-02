@@ -154,18 +154,18 @@ function build_sodalite() {
     fi
 
     if [[ -d "$_path/.git" ]]; then
-        git config --global --add safe.directory $_path
+        git config --global --add safe.directory "$_path"
 
-        git_commit=$(git -C $_path rev-parse --short HEAD)
+        git_commit=$(git -C "$_path" rev-parse --short HEAD)
 
-        if [[ "$(git -C $_path status --porcelain --untracked-files=no)" == "" ]]; then
-            git_tag="$(git -C $_path describe --exact-match --tags $(git -C $src_dir log -n1 --pretty='%h') 2>/dev/null)"
+        if [[ "$(git -C "$_path" status --porcelain --untracked-files=no)" == "" ]]; then
+            git_tag="$(git -C "$_path" describe --exact-match --tags $(git -C $src_dir log -n1 --pretty='%h') 2>/dev/null)"
         fi
 
         # BUG: Fails in the container because of host key verification
         say primary "$(build_emj "🗑️")Cleaning up Git repository..."
-        nudo git -C $_path fetch --prune
-        nudo git -C $_path fetch --prune-tags
+        nudo git -C "$_path" fetch --prune
+        nudo git -C "$_path" fetch --prune-tags
     fi
 
     if [[ $git_commit != "" ]]; then
