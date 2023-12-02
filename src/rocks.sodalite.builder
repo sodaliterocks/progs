@@ -2,6 +2,8 @@
 
 id="$(echo $RANDOM | md5sum | head -c 6; echo;)"
 default_working_dir="./build"
+default_ostree_cache_dir="$default_working_dir/cache"
+default_ostree_repo_dir="$default_working_dir/repo"
 
 _PLUG_TITLE="Sodalite Builder"
 _PLUG_DESCRIPTION=""
@@ -9,14 +11,14 @@ _PLUG_ARGS=(
     "path;p;Path to local Sodalite repository;path;."
     "tree;t;Treefile (from ./src/treefiles);string;custom"
     "container;c;Build tree inside Podman container"
-    "vendor;;Vendor to use in CPE;string;$USER"
-    "working-dir;w;Directory to output build artifacts to;string;$default_working_dir"
-    "git-version;g;Execute latest version of $_PLUG_TITLE from GitHub (https://github.com/sodaliterocks/progs)"
+    "working-dir;w;Directory to output build artifacts to;path;$default_working_dir"
+    "buildinfo-anon;;Do not print sensitive information into buildinfo file"
+    "git-version;;Execute latest version of $_PLUG_TITLE from GitHub (https://github.com/sodaliterocks/progs)"
     "serve;;Serve repository after successful build"
     "serve-port;;Port to serve on when using --serve;int;8080"
-    "buildinfo-anon;;Do not print sensitive information into buildinfo file"
     "skip-cleanup;;Skip cleaning up on exit"
     "skip-tests;;Skip executing tests"
+    "vendor;;Vendor to use in CPE;string;$USER"
     "ex-container-args;;Extra arguments for Podman when using --container/-c"
     "ex-container-hostname;;Hostname for Podman container when using --container/-c;string;sodalite-build--$id"
     "ex-container-image;;Image for Podman when using --container/-c;string;fedora:39"
@@ -24,11 +26,17 @@ _PLUG_ARGS=(
     "ex-container-name;;Name for Podman container when using --container/-c;string;sodalite-build_$id"
     "ex-git-version-branch;;Branch to use when using --git-version/-g;string;main"
     "ex-no-unified-core;;Do not use --unified-core option with rpm-ostree"
+    "ex-ostree-cache-dir;;;path;$default_ostree_cache_dir"
+    "ex-ostree-repo-dir;;;path;$default_ostree_repo_dir"
     "ex-override-starttime;;;int"
     "ex-print-github-release-table-row;;"
     "ex-use-docker;;Use Docker instead of Podman when using --container/-c (experimental!)"
 )
+_PLUG_POSITIONAL="tree;tree working-dir"
 _PLUG_ROOT="true"
+
+_build_meta_dir=""
+_ref=""
 
 function build_die() {
     exit_code=255
@@ -65,6 +73,42 @@ function cleanup() {
     fi
 }
 
+function nudo() { # "Normal User DO"
+    cmd="$@"
+    eval_cmd="$cmd"
+
+    if [[ $SUDO_USER != "" ]]; then
+        eval_cmd="sudo -E -u $SUDO_USER $eval_cmd"
+    fi
+
+    eval "$eval_cmd"
+}
+
+function ost() {
+    command=$1
+    options="${@:2}"
+
+    ostree $command --repo="$_ex_ostree_repo_dir" $options
+}
+
+
+function get_treefile() {
+    passed_tree="$_tree"
+    computed_tree=""
+    treefile_dir="$_path/src/treefiles"
+
+    if [[ -f "$treefile_dir/sodalite-desktop-$passed_tree.yaml" ]]; then
+        computed_variant="desktop-$passed_tree"
+    else
+        [[ $passed_tree == *.yaml ]] && passed_tree="$(echo $passed_tree | sed s/.yaml//)"
+        [[ $passed_tree == sodalite* ]] && passed_tree="$(echo $passed_tree | sed s/sodalite-//)"
+
+        computed_tree="$passed_tree"
+    fi
+
+    echo "$treefile_dir/sodalite-$computed_tree.yaml"
+}
+
 function get_user() {
     if [[ $SUDO_USER != "" ]]; then
         echo "$SUDO_USER"
@@ -73,14 +117,219 @@ function get_user() {
     fi
 }
 
-function main() {
-    me_filename="$SODALITE_BUILD_FILENAME"
+###
 
-    if [[ "$(id -u)" == "0" ]]; then
-        _vendor="$(get_user)"
+function build_sodalite() {
+    say primary "$(build_emj "🪛")Setting up..."
+
+    buildinfo_file="$_path/src/sysroot/common/usr/lib/sodalite-buildinfo"
+    git_commit=""
+    git_tag=""
+    lockfile="$_path/src/shared/overrides.yaml"
+    treefile=""
+    unified=""
+
+    if [[ ! -f "$(get_treefile)" ]]; then
+        build_die "'sodalite-$tree.yaml' does not exist"
+    else
+        treefile="$(get_treefile)"
+    fi
+
+    if [[ $_ex_no_unified_core == "true" ]]; then
+        unified="false"
+    else
+        unified="true"
+    fi
+
+    _ref="$(echo "$(cat "$treefile")" | grep "ref:" | sed "s/ref: //" | sed "s/\${basearch}/$(uname -m)/")"
+
+    if [[ $_ref =~ sodalite\/([^;]*)\/([^;]*)\/([^;]*) ]]; then
+        ref_channel="${BASH_REMATCH[1]}"
+        ref_arch="${BASH_REMATCH[2]}"
+        ref_variant="${BASH_REMATCH[3]}"
+    else
+        build_die "Ref is an invalid format (expecting 'sodalite/<channel>/<arch>/<variant>'; is '$_ref')"
+    fi
+
+    mkdir -p "$_ex_ostree_cache_dir"
+    mkdir -p "$_ex_ostree_repo_dir"
+
+    if [ ! "$(ls -A $_ex_ostree_repo_dir)" ]; then
+        say primary "$(build_emj "🆕")Initializing OSTree repository..."
+        ost init --mode=archive
+    fi
+
+    if [[ -d "$_path/.git" ]]; then
+        git config --global --add safe.directory $_path
+
+        git_commit=$(git -C $_path rev-parse --short HEAD)
+
+        if [[ "$(git -C $_path status --porcelain --untracked-files=no)" == "" ]]; then
+            git_tag="$(git -C $_path describe --exact-match --tags $(git -C $src_dir log -n1 --pretty='%h') 2>/dev/null)"
+        fi
+
+        # BUG: Fails in the container because of host key verification
+        say primary "$(build_emj "🗑️")Cleaning up Git repository..."
+        nudo git -C $_path fetch --prune
+        nudo git -C $_path fetch --prune-tags
+    fi
+
+    if [[ $git_commit != "" ]]; then
+        _build_meta_dir="$_working_dir/meta/$git_commit"
+    else
+        _build_meta_dir="$_working_dir/meta/nogit"
+    fi
+
+    mkdir -p "$_build_meta_dir"
+
+    say primary "$(build_emj "📝")Generating buildinfo file (/usr/lib/sodalite-buildinfo)..."
+
+    buildinfo_build_host_kernel="$(uname -srp)"
+    buildinfo_build_host_name="$(hostname -f)"
+    buildinfo_build_host_os="$(get_property /usr/lib/os-release "PRETTY_NAME")"
+    buildinfo_build_tool="rpm-ostree $(echo "$(rpm-ostree --version)" | grep "Version:" | sed "s/ Version: //" | tr -d "'")+$(echo "$(rpm-ostree --version)" | grep "Git:" | sed "s/ Git: //")"
+
+    if [[ $buildinfo_anon != "" ]]; then
+        buildinfo_build_host_kernel="(Undisclosed)"
+        buildinfo_build_host_name="(Undisclosed)"
+        buildinfo_build_host_os="(Undisclosed)"
+        buildinfo_build_tool="(Undisclosed)"
+    fi
+
+    buildinfo_content="AWESOME=\"Yes\"
+\nBUILD_DATE=\"$(date +"%Y-%m-%d %T %z")\"
+\nBUILD_HOST_KERNEL=\"$buildinfo_build_host_kernel\"
+\nBUILD_HOST_NAME=\"$buildinfo_build_host_name\"
+\nBUILD_HOST_OS=\"$buildinfo_build_host_os\"
+\nBUILD_TOOL=\"$buildinfo_build_tool\"
+\nBUILD_UNIFIED=$unified
+\nGIT_COMMIT=$git_commit
+\nGIT_TAG=$git_tag
+\nTREE_FILENAME=\"$(basename "$treefile")\"
+\nTREE_REF=\"$_ref\"
+\nTREE_REF_ARCH=\"$ref_arch\"
+\nTREE_REF_CHANNEL=\"$ref_channel\"
+\nTREE_REF_VARIANT=\"$ref_variant\"
+\nVENDOR=\"$_vendor\""
+
+    echo -e $buildinfo_content > $buildinfo_file
+    cat $buildinfo_file
+
+    say primary "$(build_emj "⚡")Building tree..."
+
+    compose_args="--repo=\"$_ex_ostree_repo_dir\""
+    [[ $_ostree_cache_dir != "" ]] && compose_args+=" --cachedir=\"$_ex_ostree_cache_dir\""
+    [[ -s $lockfile ]] && compose_args+=" --ex-lockfile=\"$lockfile\""
+    [[ $unified == "true" ]] && compose_args+=" --unified-core"
+
+    eval "rpm-ostree compose tree $compose_args $treefile"
+
+    if [[ $? != 0 ]]; then
+        build_die "Failed to build tree"
+    fi
+}
+
+function publish_sodalite() {
+    say primary "$(build_emj "✏️")Generating OSTree summary..."
+    ost summary --update
+}
+
+function test_sodalite() {
+    tests_dir="$_path/tests"
+    test_failed_count=0
+
+    if [[ -d $tests_dir ]]; then
+        if (( $(ls -A "$tests_dir" | wc -l) > 0 )); then
+            say primary "$(build_emj "🧪")Testing tree..."
+
+            all_commits="$(ost log $_ref | grep "commit " | sed "s/commit //")"
+            commit="$(echo "$all_commits" | head -1)"
+            commit_prev="$(echo "$all_commits" | head -2 | tail -1)"
+
+            [[ $commit == $commit_prev ]] && commit_prev=""
+
+            for test_file in $tests_dir/*.sh; do
+                export -f ost
+
+                result=$(. "$test_file" 2>&1)
+
+                if [[ $? -ne 0 ]]; then
+                    test_message_prefix="Error"
+                    test_message_color="33"
+                    ((test_failed_count++))
+                else
+                    if [[ $result != "true" ]]; then
+                        test_message_prefix="Fail"
+                        test_message_color="31"
+                        ((test_failed_count++))
+                    else
+                        test_message_prefix="Pass"
+                        test_message_color="32"
+                    fi
+                fi
+
+                say "   ⤷ \033[0;${test_message_color}m${test_message_prefix}: $(basename "$test_file" | cut -d. -f1)\033[0m"
+
+                if [[ $result != "true" ]]; then
+                    if [[ ! -z $result ]] && [[ $result != "false" ]]; then
+                        say "     \033[0;37m${result}\033[0m"
+                    fi
+                fi
+            done
+        fi
+    fi
+
+    if (( $test_failed_count > 0 )); then
+        if [[ -z $commit_prev ]]; then
+            ost refs --delete $ref
+        else
+            ost reset $ref $commit_prev
+        fi
+
+        build_die "Failed to satisfy tests ($test_failed_count failed). Removing commit '$commit'..."
+    fi
+}
+
+###
+
+function main() {
+    exit_code=0
+
+    if [[ ! -f /.sodalite-containerenv ]]; then
+        if [[ "$(id -u)" == "0" ]]; then
+            _vendor="$(get_user)"
+        fi
     fi
 
     [[ "$_working_dir" == "$default_working_dir" ]] && _working_dir="$_path/build"
+    [[ "$_ex_ostree_cache_dir" == "$default_ostree_cache_dir" ]] && _ex_ostree_cache_dir="$_working_dir/cache"
+    [[ "$_ex_ostree_repo_dir" == "$default_ostree_repo_dir" ]] && _ex_ostree_repo_dir="$_working_dir/repo"
+
+    if [[ $_git_version == "true" ]]; then
+        online_file_branch="main"
+        online_file="https://raw.githubusercontent.com/sodaliterocks/progs/$online_file_branch/src/rocks.sodalite.builder"
+        downloaded_file="$_PLUG_PATH+$online_file_branch"
+
+        local_md5sum="$(cat "$_PLUG_PATH" | md5sum | cut -d ' ' -f1)"
+        online_md5sum="$(curl -sL $online_file | md5sum | cut -d ' ' -f1)"
+
+        if [[ $? == 0 ]]; then
+            if [[ $local_md5sum != $online_md5sum ]]; then
+                curl -sL $online_file > "$downloaded_file"
+                chmod +x "$downloaded_file"
+
+                say primary "$(emj "🌐")Executing Git version ($online_file_branch)..."
+
+                bash -c "$downloaded_file $(echo $_PLUG_PASSED_ARGS | sed "s|--git-version||")"
+                downloaded_file_result="$?"
+
+                rm -rf "$downloaded_file"
+                exit $downloaded_file_result
+            fi
+        else
+            build_die "Unable to check latest remote version of Sodalite Builder"
+        fi
+    fi
 
     if [[ $_container == "true" ]]; then
         container_prog=""
@@ -112,7 +361,7 @@ function main() {
             fi
         fi
 
-        container_build_args+="--path /wd/src/"
+        container_build_args+="--path /wd/src/sodalite"
         container_build_args+=" --working-dir /wd/out"
         [[ $_buildinfo_anon != "" ]] && container_build_args+=" --buildinfo-anon $_buildinfo_anon"
         [[ $_ex_no_unified_core != "" ]] && container_build_args+=" --ex-log $ex_log"
@@ -133,13 +382,57 @@ function main() {
         container_args="run --rm --privileged \
             --hostname \"$_ex_container_hostname\" \
             --name \"$_ex_container_name\" \
-            --volume \"$working_dir:/wd/out/\" \
-            --volume \"$src_dir:/wd/src\" "
+            --volume \"$HOME/.ssh:/root/.ssh\" \
+            --volume \"$_working_dir:/wd/out\" \
+            --volume \"$_PLUG_PATH:/wd/builder\" \
+            --volume \"$invoker_dir:/wd/src/invoker\" \
+            --volume \"$_path:/wd/src/sodalite\" "
         [[ ! -z $_ex_conatiner_args ]] && container_args+="$_ex_container_args "
 
         container_command="touch /.sodalite-containerenv;"
         container_command+="dnf install -y curl git-core git-lfs hostname policycoreutils rpm-ostree selinux-policy selinux-policy-targeted;"
-        container_command+="cd /wd/src; /wd/src/$me_filename $container_build_args;"
-        container_args+="$container_image /bin/bash -c \"$container_command\""
+        container_command+="cd /wd/src; /wd/src/invoker/invoke.sh /wd/builder $container_build_args"
+        container_args+="$_ex_container_image /bin/bash -c \"$container_command\""
+
+        say primary "$(build_emj "⬇️")Pulling container image ($_ex_container_image)..."
+        podman pull $_ex_container_image
+
+        say primary "$(build_emj "📦")Executing container ($_ex_container_name)..."
+        eval "podman $container_args"
+        exit_code=$?
+    else
+        start_time=""
+
+        if [[ $_ex_override_starttime == "" ]]; then
+            start_time=$(date +%s)
+        else
+            start_time=$_ex_override_starttime # TODO: Validate?
+        fi
+
+        check_prog "git"
+        check_prog "rpm-ostree"
+
+        chown -R root:root "$_working_dir"
+
+        build_sodalite
+        test_sodalite
+        publish_sodalite
     fi
+
+    exit $exit_code
 }
+
+if [[ $_PLUG_INVOKED != "true" ]]; then
+    base_dir="$(dirname "$(realpath -s "$0")")"
+    git_dir="$base_dir/.."
+    invoker_dir=""
+
+    if [[ -d "$git_dir/.git" ]]; then
+        invoker_dir="$git_dir/lib/sodaliterocks.invoker/src" 
+    else
+        invoker_dir="/usr/libexec/sodalite/invoker"
+    fi
+
+    export invoker_dir
+    "$invoker_dir/invoke.sh" "$0" $@
+fi
