@@ -484,7 +484,7 @@ if [[ $_PLUG_INVOKED != "true" ]]; then
     git_dir="$base_dir/.."
     invoker_dir=""
 
-    if [[ -d "$git_dir/.git" ]]; then
+    if [[ -e "$git_dir/.git" ]]; then
         invoker_dir="$git_dir/lib/sodaliterocks.invoker/src" 
     else
         invoker_dir="/usr/libexec/sodalite/invoker"
