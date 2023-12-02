@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 
 id="$(echo $RANDOM | md5sum | head -c 6; echo;)"
+default_path="."
 default_working_dir="./build"
 default_ostree_cache_dir="$default_working_dir/cache"
 default_ostree_repo_dir="$default_working_dir/repo"
@@ -8,7 +9,7 @@ default_ostree_repo_dir="$default_working_dir/repo"
 _PLUG_TITLE="Sodalite Builder"
 _PLUG_DESCRIPTION=""
 _PLUG_ARGS=(
-    "path;p;Path to local Sodalite repository;path;."
+    "path;p;Path to local Sodalite repository;path;$default_path"
     "tree;t;Treefile (from ./src/treefiles);string;custom"
     "container;c;Build tree inside Podman container"
     "working-dir;w;Directory to output build artifacts to;path;$default_working_dir"
@@ -36,6 +37,7 @@ _PLUG_POSITIONAL="tree;tree working-dir"
 _PLUG_ROOT="true"
 
 _build_meta_dir=""
+_buildinfo_file=""
 _ref=""
 
 function build_die() {
@@ -60,12 +62,12 @@ function cleanup() {
     if [[ "$_skip_cleanup" == "" ]]; then
         say primary "$(build_emj "🗑️")Cleaning up..."
 
-        rm -f "$buildinfo_file"
+        rm -f "$_buildinfo_file"
         rm -rf /var/tmp/rpm-ostree.*
 
         if [[ $SUDO_USER != "" ]]; then
-            if [[ -d "$working_dir" ]]; then
-                chown -R $SUDO_USER:$SUDO_USER "$working_dir"
+            if [[ -d "$_working_dir" ]]; then
+                chown -R $SUDO_USER:$SUDO_USER "$_working_dir"
             fi
         fi
     else
@@ -122,7 +124,6 @@ function get_user() {
 function build_sodalite() {
     say primary "$(build_emj "🪛")Setting up..."
 
-    buildinfo_file="$_path/src/sysroot/common/usr/lib/sodalite-buildinfo"
     git_commit=""
     git_tag=""
     lockfile="$_path/src/shared/overrides.yaml"
@@ -130,7 +131,7 @@ function build_sodalite() {
     unified=""
 
     if [[ ! -f "$(get_treefile)" ]]; then
-        build_die "'sodalite-$tree.yaml' does not exist"
+        build_die "'sodalite-$_tree.yaml' does not exist"
     else
         treefile="$(get_treefile)"
     fi
@@ -141,6 +142,7 @@ function build_sodalite() {
         unified="true"
     fi
 
+    _buildinfo_file="$_path/src/sysroot/common/usr/lib/sodalite-buildinfo"
     _ref="$(echo "$(cat "$treefile")" | grep "ref:" | sed "s/ref: //" | sed "s/\${basearch}/$(uname -m)/")"
 
     if [[ $_ref =~ sodalite\/([^;]*)\/([^;]*)\/([^;]*) ]]; then
@@ -149,14 +151,6 @@ function build_sodalite() {
         ref_variant="${BASH_REMATCH[3]}"
     else
         build_die "Ref is an invalid format (expecting 'sodalite/<channel>/<arch>/<variant>'; is '$_ref')"
-    fi
-
-    mkdir -p "$_ex_ostree_cache_dir"
-    mkdir -p "$_ex_ostree_repo_dir"
-
-    if [ ! "$(ls -A $_ex_ostree_repo_dir)" ]; then
-        say primary "$(build_emj "🆕")Initializing OSTree repository..."
-        ost init --mode=archive
     fi
 
     if [[ -d "$_path/.git" ]]; then
@@ -181,6 +175,13 @@ function build_sodalite() {
     fi
 
     mkdir -p "$_build_meta_dir"
+    mkdir -p "$_ex_ostree_cache_dir"
+    mkdir -p "$_ex_ostree_repo_dir"
+
+    if [ ! "$(ls -A $_ex_ostree_repo_dir)" ]; then
+        say primary "$(build_emj "🆕")Initializing OSTree repository..."
+        ost init --mode=archive
+    fi
 
     say primary "$(build_emj "📝")Generating buildinfo file (/usr/lib/sodalite-buildinfo)..."
 
@@ -212,8 +213,8 @@ function build_sodalite() {
 \nTREE_REF_VARIANT=\"$ref_variant\"
 \nVENDOR=\"$_vendor\""
 
-    echo -e $buildinfo_content > $buildinfo_file
-    cat $buildinfo_file
+    echo -e $buildinfo_content > $_buildinfo_file
+    cat $_buildinfo_file
 
     say primary "$(build_emj "⚡")Building tree..."
 
@@ -233,6 +234,14 @@ function publish_sodalite() {
     say primary "$(build_emj "✏️")Generating OSTree summary..."
     ost summary --update
 }
+
+function serve_sodalite() {
+    say primary "$(build_emj "🥄")Serving repository..."
+    check_prog "python"
+    python -m http.server --bind 0.0.0.0 --directory "$_working_dir/repo" $_serve_port
+    [[ $? != 0 ]] && build_die "Failed to run HTTP server"
+}
+
 
 function test_sodalite() {
     tests_dir="$_path/tests"
@@ -301,6 +310,7 @@ function main() {
         fi
     fi
 
+    [[ "$_path" == "$default_path" ]] && _path="$(pwd)"
     [[ "$_working_dir" == "$default_working_dir" ]] && _working_dir="$_path/build"
     [[ "$_ex_ostree_cache_dir" == "$default_ostree_cache_dir" ]] && _ex_ostree_cache_dir="$_working_dir/cache"
     [[ "$_ex_ostree_repo_dir" == "$default_ostree_repo_dir" ]] && _ex_ostree_repo_dir="$_working_dir/repo"
@@ -412,11 +422,58 @@ function main() {
         check_prog "git"
         check_prog "rpm-ostree"
 
+        mkdir -p "$_working_dir"
         chown -R root:root "$_working_dir"
 
         build_sodalite
         test_sodalite
         publish_sodalite
+
+        end_time=$(( $(date +%s) - $start_time ))
+        highscore="false"
+        highscore_file="$_build_meta_dir/highscore"
+        prev_highscore=""
+
+        if [[ ! -f "$highscore_file" ]]; then
+            touch "$highscore_file"
+            echo "$end_time" > "$highscore_file"
+        else
+            prev_highscore="$(cat "$highscore_file")"
+            if (( $end_time < $prev_highscore )); then
+                highscore="true"
+                echo "$end_time" > "$highscore_file"
+            fi
+        fi
+
+        cleanup
+
+        echo "$(repeat "-" 80)"
+
+        built_commit="$(echo "$(ost log $_ref | grep "commit " | sed "s/commit //")" | head -1)"
+        built_version="$(ost cat $built_commit /usr/lib/os-release | grep "OSTREE_VERSION=" | sed "s/OSTREE_VERSION=//" | sed "s/'//g")"
+        built_pretty_name="$(ost cat $built_commit /usr/lib/os-release | grep "PRETTY_NAME=" | sed "s/PRETTY_NAME=//" | sed "s/\"//g")"
+
+        say "$(build_emj "ℹ️")\033[1;35mName:    \033[0;0m$built_pretty_name"
+        say "   \033[1;35mBase:    \033[0;0m$(ost cat $built_commit /usr/lib/upstream-os-release | grep "PRETTY_NAME=" | sed "s/PRETTY_NAME=//" | sed "s/\"//g")"
+        say "   \033[1;35mVersion: \033[0;0m$built_version"
+        say "   \033[1;35mCPE:     \033[0;0m$(ost cat $built_commit /usr/lib/system-release-cpe)"
+        say "   \033[1;35mRef:     \033[0;0m$(ost cat $built_commit /usr/lib/sodalite-buildinfo | grep "TREE_REF=" | sed "s/TREE_REF=//" | sed "s/\"//g")"
+        say "   \033[1;35mCommit:  \033[0;0m$built_commit"
+
+        if [[ $_ex_print_github_release_table_row != "" ]]; then
+            echo "$(repeat "-" 80)"
+            github_release_table_row="| <pre><b>$ref</b></pre> | **$(echo $built_pretty_name | sed -s "s| |\&#160;|g")** | $built_version | <pre>$built_commit</pre> |"
+            say "$github_release_table_row"
+        fi
+
+        echo "$(repeat "-" 80)"
+
+        say primary "$(build_emj "✅")Success ($(print_time $end_time))"
+        [[ $highscore == "true" ]] && echo "$(build_emj "🏆") You're Winner (previous: $(print_time $prev_highscore))!"
+    fi
+
+    if [[ $serve == "true" ]]; then
+        serve_sodalite
     fi
 
     exit $exit_code
