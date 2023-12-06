@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+
+_PLUG_TITLE="Cleanup"
+_PLUG_DESCRIPTION="Remove various system junk files"
+_PLUG_ARGS=(
+    "all;a;Cleanup everything (runs all options)"
+    "flatpak;;Remove Flatpak unused packages"
+    "rost-cache;;Remove rpm-ostree cache and temporary data"
+    "rost-deployments;;Remove rpm-ostree pending and rollback deployments"
+)
+_PLUG_ROOT=true
+
+function main() {
+    has_run="false"
+
+    if [[ $_all == "true" ]]; then
+        has_run="true"
+
+        _flatpak="true"
+        _rost_cache="true"
+        _rost_deployments="true"
+    fi
+
+    if [[ $_flatpak == "true" ]]; then
+        has_run="true"
+        say warning "Removing Flatpak unused packages..."
+        flatpak uninstall --noninteractive --unused
+    fi
+
+    if [[ $_rost_cache == "true" ]]; then
+        has_run="true"
+        say warning "Removing rpm-ostree cache and temporary data..."
+        rpm-ostree cleanup --base --repomd
+    fi
+
+    if [[ $_rost_deployments == "true" ]]; then
+        has_run="true"
+        say warning "Removing rpm-ostree pending and rollback deployments..."
+        rpm-ostree cleanup --pending --rollback
+    fi
+
+    if [[ $has_run == "false" ]]; then
+        die "No option specified (see --help)"
+    fi
+}
+
+if [[ $_PLUG_INVOKED != "true" ]]; then
+    base_dir="$(dirname "$(realpath -s "$0")")"
+    git_dir="$base_dir/.."
+
+    if [[ -d "$git_dir/.git" ]]; then
+        "$git_dir/lib/sodaliterocks.invoker/src/invoke.sh" "$0" $@
+    else
+        "/usr/libexec/sodalite/invoker/invoke.sh" "$0" $@
+    fi
+fi
