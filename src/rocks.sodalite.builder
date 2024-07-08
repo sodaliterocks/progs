@@ -146,6 +146,8 @@ function print_time() {
 function build_sodalite() {
     say primary "$(build_emj "🪛")Setting up..."
 
+	mkdir -p "$_path"
+
     git_commit=""
     git_tag=""
     lockfile="$_path/src/shared/overrides.yaml"
