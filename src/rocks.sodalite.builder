@@ -146,8 +146,6 @@ function print_time() {
 function build_sodalite() {
     say primary "$(build_emj "🪛")Setting up..."
 
-	mkdir -p "$_path"
-
     git_commit=""
     git_tag=""
     lockfile="$_path/src/shared/overrides.yaml"
@@ -338,6 +336,9 @@ function main() {
     [[ "$_working_dir" == "$default_working_dir" ]] && _working_dir="$_path/build"
     [[ "$_ex_ostree_cache_dir" == "$default_ostree_cache_dir" ]] && _ex_ostree_cache_dir="$_working_dir/cache"
     [[ "$_ex_ostree_repo_dir" == "$default_ostree_repo_dir" ]] && _ex_ostree_repo_dir="$_working_dir/repo"
+
+    mkdir -p "$_path"
+    mkdir -p "$_working_dir"
 
     if [[ $_git_version == "true" ]]; then
         online_file_branch="main"
