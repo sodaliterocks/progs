@@ -14,6 +14,7 @@ _PLUG_ARGS=(
     "container;c;Build tree inside Podman container"
     "working-dir;w;Directory to output build artifacts to;path;$default_working_dir"
     "buildinfo-anon;;Do not print sensitive information into buildinfo file"
+    "container-image;;Image for Podman when using --container/-c;string;fedora:40"
     "git-version;;Execute latest version of $_PLUG_TITLE from GitHub (https://github.com/sodaliterocks/progs)"
     "serve;;Serve repository after successful build"
     "serve-port;;Port to serve on when using --serve;int;8080"
@@ -22,7 +23,6 @@ _PLUG_ARGS=(
     "vendor;;Vendor to use in CPE;string;$USER"
     "ex-container-args;;Extra arguments for Podman when using --container/-c"
     "ex-container-hostname;;Hostname for Podman container when using --container/-c;string;sodalite-build--$id"
-    "ex-container-image;;Image for Podman when using --container/-c;string;fedora:40"
     "ex-container-image-allow-non-fedora;;Allow images other than Fedora to be used when using --container/-c"
     "ex-container-name;;Name for Podman container when using --container/-c;string;sodalite-build_$id"
     "ex-git-version-branch;;Branch to use when using --git-version/-g;string;main"
@@ -424,10 +424,10 @@ function main() {
         container_command="touch /.sodalite-containerenv;"
         container_command+="dnf install -y curl git-core git-lfs hostname policycoreutils rpm-ostree selinux-policy selinux-policy-targeted;"
         container_command+="cd /wd/src; /wd/src/invoker/invoke.sh /wd/builder $container_build_args"
-        container_args+="$_ex_container_image /bin/bash -c \"$container_command\""
+        container_args+="$_container_image /bin/bash -c \"$container_command\""
 
-        say primary "$(build_emj "⬇️")Pulling container image ($_ex_container_image)..."
-        podman pull $_ex_container_image
+        say primary "$(build_emj "⬇️")Pulling container image ($_container_image)..."
+        podman pull $_container_image
 
         say primary "$(build_emj "📦")Executing container ($_ex_container_name)..."
         eval "podman $container_args"
