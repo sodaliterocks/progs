@@ -207,6 +207,7 @@ function build_sodalite() {
 
     say primary "$(build_emj "📝")Generating buildinfo file (/usr/lib/sodalite-buildinfo)..."
 
+	buildinfo_build_container="false"
     buildinfo_build_host_kernel="$(uname -sr)"
     buildinfo_build_host_name="$(hostname -f)"
     buildinfo_build_host_os="$(get_property /usr/lib/os-release "PRETTY_NAME")"
@@ -221,7 +222,12 @@ function build_sodalite() {
         buildinfo_build_tool="(Undisclosed)"
     fi
 
+    if [[ -f "/.sodalite-containerenv" ]]; then
+    	buildinfo_build_container="true"
+    fi
+
     buildinfo_content="AWESOME=\"Yes\"
+\nBUILD_CONTAINER=$buildinfo_build_container
 \nBUILD_DATE=\"$(date +"%Y-%m-%d %T %z")\"
 \nBUILD_HOST_KERNEL=\"$buildinfo_build_host_kernel\"
 \nBUILD_HOST_NAME=\"$buildinfo_build_host_name\"
