@@ -26,6 +26,7 @@ _PLUG_ARGS=(
     "ex-container-image-allow-non-fedora;;Allow images other than Fedora to be used when using --container/-c"
     "ex-container-name;;Name for Podman container when using --container/-c;string;sodalite-build_$id"
     "ex-git-version-branch;;Branch to use when using --git-version/-g;string;main"
+    "ex-no-internet-check;;Do not check for internet connectivity"
     "ex-no-unified-core;;Do not use --unified-core option with rpm-ostree"
     "ex-ostree-cache-dir;;;path;$default_ostree_cache_dir"
     "ex-ostree-repo-dir;;;path;$default_ostree_repo_dir"
@@ -348,6 +349,16 @@ function main() {
 
     mkdir -p "$_path"
     mkdir -p "$_working_dir"
+
+    if [[ $_ex_no_internet_check != "" ]]; then
+		say primary "$(emj "🔌")Checking for Internet connectivity..."
+
+		wan_check_output="$(curl -sL https://cdn.zio.sh/ping.txt)"
+
+		if [[ $wan_check_output != "Pong!" ]]; then
+			build_die "No Internet connection available"
+		fi
+    fi
 
     if [[ $_git_version == "true" ]]; then
         online_file_branch="main"
