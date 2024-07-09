@@ -207,15 +207,17 @@ function build_sodalite() {
 
     say primary "$(build_emj "📝")Generating buildinfo file (/usr/lib/sodalite-buildinfo)..."
 
-    buildinfo_build_host_kernel="$(uname -srp)"
+    buildinfo_build_host_kernel="$(uname -sr)"
     buildinfo_build_host_name="$(hostname -f)"
     buildinfo_build_host_os="$(get_property /usr/lib/os-release "PRETTY_NAME")"
+    buildinfo_build_host_platform="$(uname -m) ($(uname -p))"
     buildinfo_build_tool="rpm-ostree $(echo "$(rpm-ostree --version)" | grep "Version:" | sed "s/ Version: //" | tr -d "'")+$(echo "$(rpm-ostree --version)" | grep "Git:" | sed "s/ Git: //")"
 
     if [[ $buildinfo_anon != "" ]]; then
         buildinfo_build_host_kernel="(Undisclosed)"
         buildinfo_build_host_name="(Undisclosed)"
         buildinfo_build_host_os="(Undisclosed)"
+        buildinfo_build_host_platform="(Undisclosed)"
         buildinfo_build_tool="(Undisclosed)"
     fi
 
@@ -224,6 +226,7 @@ function build_sodalite() {
 \nBUILD_HOST_KERNEL=\"$buildinfo_build_host_kernel\"
 \nBUILD_HOST_NAME=\"$buildinfo_build_host_name\"
 \nBUILD_HOST_OS=\"$buildinfo_build_host_os\"
+\nBUILD_HOST_PLATFORM=\"$buildinfo_build_host_platform\"
 \nBUILD_TOOL=\"$buildinfo_build_tool\"
 \nBUILD_UNIFIED=$unified
 \nGIT_COMMIT=$git_commit
