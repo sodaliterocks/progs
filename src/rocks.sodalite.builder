@@ -180,10 +180,7 @@ function build_sodalite() {
         git config --global --add safe.directory "$_path"
 
         git_commit=$(git -C "$_path" rev-parse --short HEAD)
-
-        if [[ "$(git -C "$_path" status --porcelain --untracked-files=no)" == "" ]]; then
-            git_tag="$(git -C "$_path" describe --exact-match --tags $(git -C $src_dir log -n1 --pretty='%h') 2>/dev/null)"
-        fi
+		git_tag="$(git tag --points-at HEAD)" # BUG: Will tag even if there is changes
 
         # BUG: Fails in the container because of host key verification
         say primary "$(build_emj "🗑️")Cleaning up Git repository..."
