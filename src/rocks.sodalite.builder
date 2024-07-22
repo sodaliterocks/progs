@@ -180,7 +180,7 @@ function build_sodalite() {
         git config --global --add safe.directory "$_path"
 
         git_commit=$(git -C "$_path" rev-parse --short HEAD)
-		git_tag="$(git tag --points-at HEAD)" # BUG: Will tag even if there is changes
+		git_tag="$(git -C "$_path" tag --points-at HEAD)" # BUG: Will tag even if there is changes
 
         # BUG: Fails in the container because of host key verification
         say primary "$(build_emj "🗑️")Cleaning up Git repository..."
