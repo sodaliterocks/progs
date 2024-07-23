@@ -333,12 +333,6 @@ function test_sodalite() {
 function main() {
     exit_code=0
 
-    if [[ ! -f /.sodalite-containerenv ]]; then
-        if [[ "$(id -u)" == "0" ]]; then
-            _vendor="$(get_user)"
-        fi
-    fi
-
     [[ "$_path" == "$default_path" ]] && _path="$(pwd)"
     [[ "$_working_dir" == "$default_working_dir" ]] && _working_dir="$_path/build"
     [[ "$_ex_ostree_cache_dir" == "$default_ostree_cache_dir" ]] && _ex_ostree_cache_dir="$_working_dir/cache"
