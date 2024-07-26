@@ -11,9 +11,9 @@ _PLUG_DESCRIPTION=""
 _PLUG_ARGS=(
     "path;p;Path to local Sodalite repository;path;$default_path"
     "tree;t;Treefile (from ./src/treefiles);string;custom"
-    "container;c;Build tree inside Podman container"
     "working-dir;w;Directory to output build artifacts to;path;$default_working_dir"
-    "buildinfo-anon;;Do not print sensitive information into buildinfo file"
+    "container;c;Build tree inside Podman container"
+    "options;o;Options for post-build scripts (comma-separated)"
     "container-image;;Image for Podman when using --container/-c;string;fedora:40"
     "git-version;;Execute latest version of $_PLUG_TITLE from GitHub (https://github.com/sodaliterocks/progs)"
     "serve;;Serve repository after successful build"
@@ -166,6 +166,7 @@ function build_sodalite() {
     fi
 
     _buildinfo_file="$_path/src/sysroot/common/usr/lib/sodalite-buildinfo"
+    _buildopts_file="$_path/src/sysroot/common/usr/lib/sodalite-buildopts"
     _ref="$(echo "$(cat "$treefile")" | grep "ref:" | sed "s/ref: //" | sed "s/\${basearch}/$(uname -m)/")"
 
     if [[ $_ref =~ sodalite\/([^;]*)\/([^;]*)\/([^;]*) ]]; then
@@ -212,14 +213,6 @@ function build_sodalite() {
     buildinfo_build_host_platform="$(uname -m) ($(uname -p))"
     buildinfo_build_tool="rpm-ostree $(echo "$(rpm-ostree --version)" | grep "Version:" | sed "s/ Version: //" | tr -d "'")+$(echo "$(rpm-ostree --version)" | grep "Git:" | sed "s/ Git: //")"
 
-    if [[ $buildinfo_anon != "" ]]; then
-        buildinfo_build_host_kernel="(Undisclosed)"
-        buildinfo_build_host_name="(Undisclosed)"
-        buildinfo_build_host_os="(Undisclosed)"
-        buildinfo_build_host_platform="(Undisclosed)"
-        buildinfo_build_tool="(Undisclosed)"
-    fi
-
     if [[ -f "/.sodalite-containerenv" ]]; then
     	buildinfo_build_container="true"
     fi
@@ -244,6 +237,14 @@ function build_sodalite() {
 
     echo -e $buildinfo_content > $_buildinfo_file
     cat $_buildinfo_file
+
+    echo "" > $_buildopts_file
+    IFS=","
+	for option in $_options
+	do
+	   echo $option >> $_buildopts_file
+	done
+	sed -i '/^$/d' $_buildopts_file
 
     say primary "$(build_emj "⚡")Building tree..."
 
@@ -409,9 +410,9 @@ function main() {
 
         container_build_args+="--path /wd/src/sodalite"
         container_build_args+=" --working-dir /wd/out"
-        [[ $_buildinfo_anon != "" ]] && container_build_args+=" --buildinfo-anon $_buildinfo_anon"
         [[ $_ex_no_unified_core != "" ]] && container_build_args+=" --ex-log $ex_log"
         [[ $_ex_print_github_release_table_row != "" ]] && container_build_args+=" --ex-print-github-release-table-row $_ex_print_github_release_table_row"
+        [[ $_options != "" ]] && container_build_args+=" --options $_options"
         [[ $_serve != "" ]] && container_build_args+=" --serve $_serve"
         [[ $_serve_port != "" ]] && container_build_args+=" --serve-port $_serve_port"
         [[ $_skip_cleanup != "" ]] && container_build_args+=" --skip-cleanup $_skip_cleanup"
