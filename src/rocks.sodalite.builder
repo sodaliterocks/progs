@@ -224,6 +224,7 @@ function build_sodalite() {
 \nBUILD_HOST_NAME=\"$buildinfo_build_host_name\"
 \nBUILD_HOST_OS=\"$buildinfo_build_host_os\"
 \nBUILD_HOST_PLATFORM=\"$buildinfo_build_host_platform\"
+\nBUILD_OPTIONS=\"$_options\"
 \nBUILD_TOOL=\"$buildinfo_build_tool\"
 \nBUILD_UNIFIED=$unified
 \nGIT_COMMIT=$git_commit
