@@ -237,7 +237,7 @@ function build_sodalite() {
 \nVENDOR=\"$_vendor\""
 
     echo -e $buildinfo_content > $_buildinfo_file
-    cat $_buildinfo_file
+    cat "$_buildinfo_file"
 
 	say primary "$(build_emj "📝")Generating buildopts file (/usr/lib/sodalite-buildopts)..."
 
