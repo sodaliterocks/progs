@@ -239,8 +239,6 @@ function build_sodalite() {
     echo -e $buildinfo_content > $_buildinfo_file
     cat "$_buildinfo_file"
 
-	say primary "$(build_emj "📝")Generating buildopts file (/usr/lib/sodalite-buildopts)..."
-
     echo "" > $_buildopts_file
     IFS=","
 	for option in $_options
@@ -248,8 +246,6 @@ function build_sodalite() {
 	   echo $option >> $_buildopts_file
 	done
 	sed -i '/^$/d' $_buildopts_file
-
-	cat "$_buildopts_file"
 
     say primary "$(build_emj "⚡")Building tree..."
 
