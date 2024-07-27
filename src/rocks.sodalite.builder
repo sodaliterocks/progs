@@ -20,7 +20,7 @@ _PLUG_ARGS=(
     "serve-port;;Port to serve on when using --serve;int;8080"
     "skip-cleanup;;Skip cleaning up on exit"
     "skip-tests;;Skip executing tests"
-    "vendor;;Vendor to use in CPE;string;$USER"
+    "vendor;;Vendor to use in CPE;string;$(if [[ ! -n $SUDO_USER ]]; then echo $USER; else echo $SUDO_USER; fi)"
     "ex-container-args;;Extra arguments for Podman when using --container/-c"
     "ex-container-hostname;;Hostname for Podman container when using --container/-c;string;sodalite-build--$id"
     "ex-container-image-allow-non-fedora;;Allow images other than Fedora to be used when using --container/-c"
