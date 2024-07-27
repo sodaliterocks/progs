@@ -23,7 +23,6 @@ _PLUG_ARGS=(
     "vendor;;Vendor to use in CPE;string;$(if [[ ! -n $SUDO_USER ]]; then echo $USER; else echo $SUDO_USER; fi)"
     "ex-container-args;;Extra arguments for Podman when using --container/-c"
     "ex-container-hostname;;Hostname for Podman container when using --container/-c;string;sodalite-build--$id"
-    "ex-container-image-allow-non-fedora;;Allow images other than Fedora to be used when using --container/-c"
     "ex-container-name;;Name for Podman container when using --container/-c;string;sodalite-build_$id"
     "ex-git-version-branch;;Branch to use when using --git-version/-g;string;main"
     "ex-no-unified-core;;Do not use --unified-core option with rpm-ostree"
