@@ -138,7 +138,7 @@ function print_time() {
     [[ $m != "0" ]] && output+=" $m $m_string"
     [[ $s != "0" ]] && output+=" $s $s_string"
 
-    echo $output
+    echo $(echo $output | xargs)
 }
 
 ###
